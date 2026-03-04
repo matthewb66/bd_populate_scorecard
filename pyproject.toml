@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "bd-scorecard-lookup"
+version = "0.1.0"
+description = "Fetch OpenSSF Scorecard data for Black Duck BOM components and write results to Component custom fields"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "blackduck>=1.0.4",
+]
+
+[project.scripts]
+bd-scorecard-lookup = "bd_scorecard.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bd_scorecard*"]
