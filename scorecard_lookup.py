@@ -14,7 +14,7 @@ Usage:
   python scorecard_lookup.py --workers 10 npm:express rubygems:rails
 
 Package identifier format: <ecosystem>:<package>
-Supported ecosystems: npm, pypi, rubygems, nuget
+Supported ecosystems: npm, pypi, rubygems, nuget, maven, cargo, golang
 """
 
 import argparse
@@ -26,6 +26,7 @@ from typing import Optional
 import requests
 
 from pkg_repo_lookup import (
+    fetch_repo_from_deps_dev,
     fetch_repo_from_npm,
     fetch_repo_from_nuget,
     fetch_repo_from_pypi,
@@ -41,6 +42,10 @@ ECOSYSTEM_FETCHERS = {
     "pypi":     fetch_repo_from_pypi,
     "rubygems": fetch_repo_from_rubygems,
     "nuget":    fetch_repo_from_nuget,
+    # deps.dev-resolved ecosystems: package part includes version (name/version)
+    "maven":    lambda pkg: fetch_repo_from_deps_dev("MAVEN", pkg),
+    "cargo":    lambda pkg: fetch_repo_from_deps_dev("CARGO", pkg),
+    "golang":   lambda pkg: fetch_repo_from_deps_dev("GO", pkg),
 }
 
 

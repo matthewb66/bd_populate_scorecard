@@ -15,6 +15,7 @@ import argparse
 import re
 import sys
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 
 import requests
 
@@ -231,6 +232,60 @@ def fetch_repo_from_nuget(package: str) -> str:
             return candidate
 
     raise ValueError(f"source repo is not defined for nuget package: {package}")
+
+
+# ---------------------------------------------------------------------------
+# deps.dev  (REST API v3 — https://docs.deps.dev/api/v3/)
+# ---------------------------------------------------------------------------
+
+def fetch_repo_from_deps_dev(system: str, package_with_version: str) -> str:
+    """
+    Look up the source repository for a package via the deps.dev REST API.
+
+    ``system`` is the deps.dev ecosystem name in uppercase (e.g. ``'MAVEN'``,
+    ``'CARGO'``, ``'GO'``).
+
+    ``package_with_version`` is the BD ``externalId`` with the version retained,
+    where the version is the last ``'/'``-delimited segment (e.g.
+    ``'org.apache.commons:commons-lang3/3.12.0'``).
+
+    Returns the source repository URL.
+    Raises ``ValueError`` if the package is not found or has no source repo.
+    """
+    parts = package_with_version.rsplit('/', 1)
+    if len(parts) != 2:
+        raise ValueError(
+            f"cannot parse package/version from '{package_with_version}'"
+        )
+    pkg_name, version = parts
+
+    url = (
+        f"https://api.deps.dev/v3/systems/{system}/packages/"
+        f"{quote(pkg_name, safe='')}/versions/{quote(version, safe='')}"
+    )
+    resp = requests.get(url, timeout=TIMEOUT)
+    if resp.status_code == 404:
+        raise ValueError(
+            f"package not found on deps.dev: {system}:{pkg_name}@{version}"
+        )
+    resp.raise_for_status()
+    data = resp.json()
+
+    # Prefer a relatedProject with relationType == SOURCE_REPO
+    for project in data.get('relatedProjects', []):
+        if project.get('relationType') == 'SOURCE_REPO':
+            project_id = project.get('projectKey', {}).get('id', '')
+            if project_id:
+                return f"https://{project_id}"
+
+    # Fallback: links array entry with 'source' in the label
+    for link in data.get('links', []):
+        if 'source' in link.get('label', '').lower():
+            return link['url']
+
+    raise ValueError(
+        f"no source repository found on deps.dev for {system}:{pkg_name}@{version}"
+    )
 
 
 # ---------------------------------------------------------------------------
