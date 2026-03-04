@@ -101,6 +101,7 @@ bd-scorecard-lookup \
 | `-p`, `--project` | — | Black Duck project name **(required)** |
 | `-v`, `--version` | — | Black Duck project version name **(required)** |
 | `--update_period DD` | `30` | Skip components whose `SC-Date` is within DD days; set to `0` to always refresh |
+| `--report FILE` | — | Write a human-readable report to FILE grouping components by match / no-match |
 | `--workers N` | `8` | Number of parallel threads for API requests |
 | `--create_custom_fields [FIELD_LIST]` | — | Create custom fields then exit (see Setup above) |
 | `--debug` | off | Enable debug-level logging |

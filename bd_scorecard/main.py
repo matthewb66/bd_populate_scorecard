@@ -97,8 +97,12 @@ def process(conf):
     # the scorecard.dev lookup, reducing unnecessary API traffic.
     lookup_pkg_ids = supported_pkg_ids
     sc_date_field_id = field_id_map.get(SC_DATE)
-    if sc_date_field_id and conf.update_period > 0 and supported_pkg_ids:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=conf.update_period)
+    sc_date_map: dict[str, datetime | None] = {}
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=conf.update_period)
+        if conf.update_period > 0 else None
+    )
+    if sc_date_field_id and cutoff is not None and supported_pkg_ids:
         conf.logger.info(
             f"Checking existing SC-Date values (cutoff: {cutoff.date()}, "
             f"--update_period={conf.update_period}) …"
@@ -186,7 +190,11 @@ def process(conf):
         if sc_data:
             comp_scorecard[comp_url] = sc_data
         elif pkg_id in lookup_set and SC_DATE in field_id_map:
-            comp_date_only[comp_url] = today
+            # Only stamp SC-Date if it was blank or older than update_period.
+            # When update_period=0 (force-refresh), cutoff is None → always stamp.
+            existing = sc_date_map.get(comp_url)
+            if cutoff is None or existing is None or existing < cutoff:
+                comp_date_only[comp_url] = today
 
     if not comp_scorecard and not comp_date_only:
         conf.logger.info("No components to update — nothing to upload.")
@@ -214,6 +222,78 @@ def process(conf):
         f"Upload complete: {total_set} field value(s) written, "
         f"{total_skipped} failed across {len(comp_scorecard) + len(comp_date_only)} component(s)."
     )
+
+    # ------------------------------------------------------------------ #
+    # 5. Optional report
+    # ------------------------------------------------------------------ #
+    if conf.report:
+        _write_report(conf, pkg_id_map, scorecard_results, lookup_set)
+
+
+def _write_report(conf, pkg_id_map, scorecard_results, lookup_set):
+    lines = []
+    matched = []
+    unmatched = []
+    skipped = []
+
+    seen: set[str] = set()
+    for pkg_id, comp in pkg_id_map.items():
+        comp_url = comp.data.get('component', '')
+        if comp_url in seen:
+            continue
+        seen.add(comp_url)
+
+        if pkg_id not in lookup_set:
+            skipped.append((pkg_id, comp))
+        elif scorecard_results.get(pkg_id, {}).get('scorecard') is not None:
+            matched.append((pkg_id, comp, scorecard_results[pkg_id]['scorecard']))
+        else:
+            unmatched.append((pkg_id, comp))
+
+    lines.append("=" * 72)
+    lines.append("OpenSSF Scorecard Report")
+    lines.append(f"Project : {conf.bd_project}  Version : {conf.bd_version}")
+    lines.append(f"Date    : {datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
+    lines.append("=" * 72)
+
+    lines.append(f"\n--- Components with Scorecard data ({len(matched)}) ---\n")
+    for pkg_id, comp, sc in sorted(matched, key=lambda x: x[0]):
+        overall = sc.get('score', 'n/a')
+        repo = sc.get('repo', {}).get('name', '')
+        lines.append(f"  {comp.name} {comp.version}")
+        lines.append(f"    pkg_id  : {pkg_id}")
+        lines.append(f"    repo    : {repo}")
+        lines.append(f"    score   : {overall}")
+        checks = sc.get('checks', [])
+        if checks:
+            lines.append("    checks  :")
+            for chk in sorted(checks, key=lambda c: c.get('name', '')):
+                lines.append(f"      {chk.get('name',''):<30} {chk.get('score', 'n/a')}")
+        lines.append("")
+
+    lines.append(f"--- Components with no Scorecard data ({len(unmatched)}) ---\n")
+    for pkg_id, comp in sorted(unmatched, key=lambda x: x[0]):
+        entry = scorecard_results.get(pkg_id, {})
+        err = entry.get('error', '')
+        lines.append(f"  {comp.name} {comp.version}  [{pkg_id}]")
+        if err:
+            lines.append(f"    reason : {err}")
+        lines.append("")
+
+    if skipped:
+        lines.append(f"--- Components skipped (SC-Date within {conf.update_period} days) ({len(skipped)}) ---\n")
+        for pkg_id, comp in sorted(skipped, key=lambda x: x[0]):
+            lines.append(f"  {comp.name} {comp.version}  [{pkg_id}]")
+        lines.append("")
+
+    lines.append("=" * 72)
+
+    try:
+        with open(conf.report, 'w') as fh:
+            fh.write('\n'.join(lines) + '\n')
+        conf.logger.info(f"Report written to {conf.report}")
+    except OSError as exc:
+        conf.logger.error(f"Failed to write report: {exc}")
 
 
 if __name__ == '__main__':

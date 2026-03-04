@@ -21,6 +21,7 @@ class Config:
         # list  → create_custom_fields was supplied (list may be empty → SC-Overall only)
         self.create_custom_fields: list[str] | None = None
         self.update_period: int = 30
+        self.report: str = ''
 
     def get_cli_args(self):
         parser = argparse.ArgumentParser(
@@ -57,6 +58,8 @@ class Config:
         )
         parser.add_argument('--update_period', type=int, default=30, metavar='DD',
                             help='Only upload scorecard data newer than DD days (default: 30)')
+        parser.add_argument('--report', metavar='FILE', default='',
+                            help='Write a human-readable report to FILE')
         parser.add_argument('--debug', help='Enable debug logging', action='store_true')
         parser.add_argument('--logfile', help='Write log output to FILE', default='')
 
@@ -108,6 +111,7 @@ class Config:
         self.workers = args.workers
         self.debug = args.debug
         self.update_period = args.update_period
+        self.report = args.report
 
         # --create_custom_fields validation
         if args.create_custom_fields is not None:
