@@ -102,8 +102,6 @@ bd-scorecard-lookup \
 | `-v`, `--version` | — | Black Duck project version name **(required)** |
 | `--update_period DD` | `30` | Skip components whose `SC-Date` is within DD days; set to `0` to always refresh |
 | `--workers N` | `8` | Number of parallel threads for API requests |
-| `-o`, `--output FILE` | stdout | Write JSON results to FILE |
-| `--compact` | off | Emit single-line JSON instead of pretty-printed |
 | `--create_custom_fields [FIELD_LIST]` | — | Create custom fields then exit (see Setup above) |
 | `--debug` | off | Enable debug-level logging |
 | `--logfile FILE` | — | Write log output to FILE in addition to stderr |
@@ -120,56 +118,16 @@ export BLACKDUCK_TRUST_CERT=true   # optional
 
 ---
 
-## Output
-
-The script prints (or writes) a JSON document:
-
-```json
-{
-  "blackduck_url": "https://your-blackduck-server",
-  "project": "My Project",
-  "version": "1.0.0",
-  "total_components": 120,
-  "supported_package_ids": 98,
-  "scorecard_hits": 85,
-  "components": [
-    {
-      "component_name": "lodash",
-      "component_version": "4.17.21",
-      "package_id": "npm:lodash",
-      "ecosystem": "npm",
-      "repo_url": "https://github.com/lodash/lodash",
-      "scorecard": { ... }
-    },
-    {
-      "component_name": "some-internal-lib",
-      "component_version": "1.0.0",
-      "package_id": null,
-      "ecosystem": null,
-      "repo_url": null,
-      "scorecard": null,
-      "skipped": true,
-      "skip_reason": "no supported package manager origin (namespaces: maven)"
-    }
-  ]
-}
-```
-
-Components with no supported package manager origin (e.g. Maven, Conan) are included with `"skipped": true`.
-
----
-
 ## Examples
 
-**Write results to a file, force refresh all components:**
+**Force refresh all components:**
 
 ```
 bd-scorecard-lookup \
     --blackduck_url https://your-blackduck-server \
     --blackduck_api_token <TOKEN> \
     -p "My Project" -v "1.0.0" \
-    --update_period 0 \
-    --output results.json
+    --update_period 0
 ```
 
 **Use 16 parallel workers and enable debug logging:**
@@ -191,6 +149,5 @@ bd-scorecard-lookup \
     --blackduck_url "$BLACKDUCK_URL" \
     --blackduck_api_token "$BLACKDUCK_API_TOKEN" \
     -p "My Project" -v "1.0.0" \
-    --update_period 30 \
-    --output /var/reports/scorecard-$(date +%Y%m%d).json
+    --update_period 30
 ```

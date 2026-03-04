@@ -1,4 +1,3 @@
-import json
 import pathlib
 import sys
 from datetime import datetime, timedelta, timezone
@@ -151,82 +150,13 @@ def process(conf):
             conf.logger.error(f"Scorecard lookup failed: {exc}")
             sys.exit(-1)
 
-    # ------------------------------------------------------------------ #
-    # 4. Build the output document
-    # ------------------------------------------------------------------ #
-    component_rows = []
-
-    # Supported components — one row per pkg_id (a component with two
-    # origins gets two rows so each scorecard result is traceable)
-    for pkg_id, comp in pkg_id_map.items():
-        sc_entry = scorecard_results.get(pkg_id, {})
-        row: dict = {
-            'component_name': comp.name,
-            'component_version': comp.version,
-            'package_id': pkg_id,
-            'ecosystem': sc_entry.get('ecosystem', pkg_id.split(':')[0]),
-            'repo_url': sc_entry.get('repo_url'),
-            'scorecard': sc_entry.get('scorecard'),
-        }
-        if 'error' in sc_entry:
-            row['error'] = sc_entry['error']
-        component_rows.append(row)
-
-    # Unsupported components — included for completeness with a note
-    for comp in complist.get_unsupported():
-        unsupported_ns = comp.unsupported_namespaces()
-        row = {
-            'component_name': comp.name,
-            'component_version': comp.version,
-            'package_id': None,
-            'ecosystem': None,
-            'repo_url': None,
-            'scorecard': None,
-            'skipped': True,
-            'skip_reason': (
-                f"no supported package manager origin "
-                f"(namespaces: {', '.join(unsupported_ns) if unsupported_ns else 'none'})"
-            ),
-        }
-        component_rows.append(row)
-
-    # Tally scorecard hits
-    hits = sum(
-        1 for r in component_rows
-        if r.get('scorecard') is not None
-    )
+    hits = sum(1 for e in scorecard_results.values() if e.get('scorecard') is not None)
     conf.logger.info(
         f"Scorecard data found for {hits} / {len(supported_pkg_ids)} supported package(s)"
     )
 
-    output_doc = {
-        'blackduck_url': conf.bd_url,
-        'project': conf.bd_project,
-        'version': conf.bd_version,
-        'total_components': complist.count(),
-        'supported_package_ids': len(supported_pkg_ids),
-        'scorecard_hits': hits,
-        'components': component_rows,
-    }
-
     # ------------------------------------------------------------------ #
-    # 5. Write JSON
-    # ------------------------------------------------------------------ #
-    indent = None if conf.compact else 2
-    payload = json.dumps(output_doc, indent=indent)
-
-    if conf.output:
-        try:
-            with open(conf.output, 'w') as fh:
-                fh.write(payload)
-                fh.write('\n')
-            conf.logger.info(f"Results written to {conf.output}")
-        except OSError as exc:
-            conf.logger.error(f"Cannot write output file: {exc}")
-            sys.exit(-1)
-
-    # ------------------------------------------------------------------ #
-    # 6. Upload scorecard values to Component custom fields in Black Duck
+    # 4. Upload scorecard values to Component custom fields in Black Duck
     # ------------------------------------------------------------------ #
     # Ensure every DROPDOWN field has its options (0–10) before writing values,
     # then resolve option labels to BD's internal option IDs.

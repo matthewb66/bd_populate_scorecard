@@ -14,8 +14,6 @@ class Config:
         self.bd_project = ''
         self.bd_version = ''
         self.workers = 8
-        self.output = ''
-        self.compact = False
         self.debug = False
         self.logfile = ''
         self.logger = None
@@ -42,10 +40,6 @@ class Config:
                             help='Black Duck project version name (REQUIRED)', default='')
         parser.add_argument('--workers', type=int, default=8, metavar='N',
                             help='Parallel workers for Scorecard API requests (default: 8)')
-        parser.add_argument('-o', '--output', metavar='FILE',
-                            help='Write JSON output to FILE (default: stdout)', default='')
-        parser.add_argument('--compact', action='store_true',
-                            help='Emit compact single-line JSON instead of pretty-printed')
         parser.add_argument(
             '--create_custom_fields',
             nargs='?',
@@ -112,8 +106,6 @@ class Config:
             terminate = True
 
         self.workers = args.workers
-        self.output = args.output
-        self.compact = args.compact
         self.debug = args.debug
         self.update_period = args.update_period
 
