@@ -144,7 +144,12 @@ def query_scorecard(repo_paths: list[str], workers: int = DEFAULT_WORKERS, on_pr
 # Core logic
 # ---------------------------------------------------------------------------
 
-def run(raw_ids: list[str], workers: int = DEFAULT_WORKERS, on_progress=None) -> dict[str, dict]:
+def run(
+    raw_ids: list[str],
+    workers: int = DEFAULT_WORKERS,
+    on_progress=None,
+    pre_resolved: dict[str, str] | None = None,
+) -> dict[str, dict]:
     """
     Resolve packages and look up their scorecard data.
 
@@ -157,13 +162,17 @@ def run(raw_ids: list[str], workers: int = DEFAULT_WORKERS, on_progress=None) ->
     output: dict[str, dict] = {}
     repo_to_pkgs: dict[str, list[str]] = {}   # repo_path → [pkg_id, ...]
 
+    _pre_resolved = pre_resolved or {}
+
     # --- step 1: parse + resolve package → repo (parallel) ---
     def _resolve_one(pkg_id: str) -> tuple[str, dict]:
         entry: dict = {"package": pkg_id}
         try:
             ecosystem, package = parse_package_id(pkg_id)
             entry["ecosystem"] = ecosystem
-            repo_url = ECOSYSTEM_FETCHERS[ecosystem](package)
+            # Use cached repo URL if available, skipping the pkg→registry API call.
+            cached = _pre_resolved.get(pkg_id)
+            repo_url = cached if cached else ECOSYSTEM_FETCHERS[ecosystem](package)
             entry["repo_url"] = repo_url
             entry["_repo_path"] = repo_url_to_api_path(repo_url)
         except Exception as exc:

@@ -29,13 +29,15 @@ VALID_SC_FIELDS = [
     "SC-SAST",
 ]
 
-SC_OVERALL = "SC-Overall"
-SC_DATE    = "SC-Date"
+SC_OVERALL    = "SC-Overall"
+SC_DATE       = "SC-Date"
+SC_SOURCEREPO = "SC-Sourcerepo"
 
 # Human-readable descriptions for each field.
 _DESCRIPTIONS = {
     "SC-Overall":              "OpenSSF Scorecard overall score (0-10)",
     "SC-Date":                 "Date of the most recent OpenSSF Scorecard scan",
+    "SC-Sourcerepo":           "Resolved source repository used for the OpenSSF Scorecard lookup",
     "SC-Maintained":           "Scorecard: Is the project actively maintained?",
     "SC-Dangerous-Workflow":   "Scorecard: Are dangerous GitHub Actions workflow patterns avoided?",
     "SC-Code-Review":          "Scorecard: Are code changes reviewed before merging?",
@@ -54,7 +56,8 @@ _DESCRIPTIONS = {
 
 # Field type overrides — everything not listed here defaults to DROPDOWN.
 _FIELD_TYPES = {
-    SC_DATE: "DATE",
+    SC_DATE:       "DATE",
+    SC_SOURCEREPO: "TEXT",
 }
 
 # Load dropdown options from options.json (project root, one level above this package).
@@ -311,7 +314,7 @@ class CustomFields:
         ``requested`` should be a (possibly empty) list of names from VALID_SC_FIELDS.
         SC-Overall and SC-Date are always included.
         """
-        always = [SC_OVERALL, SC_DATE]
+        always = [SC_OVERALL, SC_DATE, SC_SOURCEREPO]
         extras = [f for f in requested if f not in always]
         wanted = always + extras
 
@@ -468,12 +471,55 @@ class CustomFields:
                     results[comp_url] = None
         return results
 
+    def get_component_sc_sourcerepo(self, component_url: str, field_id: str) -> str | None:
+        """Read the current SC-Sourcerepo custom field value from a component."""
+        component_id = component_url.rstrip("/").split("/")[-1]
+        url = f"{self.bd.base_url}/api/components/{component_id}/custom-fields/{field_id}"
+        try:
+            res = self.bd.get_json(url, headers={"accept": _COMP_CONTENT_TYPE})
+            values = res.get("values", [])
+            return values[0] if values else None
+        except Exception as exc:
+            self.conf.logger.debug(
+                f"  Could not read SC-Sourcerepo for component {component_id}: {exc}"
+            )
+            return None
+
+    def get_sc_sourcerepo_map(
+        self,
+        comp_urls: list[str],
+        field_id: str,
+        workers: int = 8,
+    ) -> dict[str, str | None]:
+        """
+        Fetch the SC-Sourcerepo custom field for multiple components in parallel.
+
+        Returns ``{component_url: repo_url_or_None}``.
+        """
+        results: dict[str, str | None] = {}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_to_url = {
+                pool.submit(self.get_component_sc_sourcerepo, url, field_id): url
+                for url in comp_urls
+            }
+            for future in as_completed(future_to_url):
+                comp_url = future_to_url[future]
+                try:
+                    results[comp_url] = future.result()
+                except Exception as exc:
+                    self.conf.logger.debug(
+                        f"  SC-Sourcerepo check failed for {comp_url.split('/')[-1]}: {exc}"
+                    )
+                    results[comp_url] = None
+        return results
+
     def upload_to_component(
         self,
         component_url: str,
         scorecard_data: dict,
         field_id_map: dict[str, str],
         option_href_map: dict[str, dict[str, str]] | None = None,
+        repo_url: str | None = None,
     ) -> tuple[int, int]:
         """
         Write scorecard values to every matching SC-* custom field on a component.
@@ -510,6 +556,10 @@ class CustomFields:
             if v is not None:
                 values[SC_DATE] = v
 
+        # SC-Sourcerepo: plain URL string (TEXT field)
+        if repo_url and SC_SOURCEREPO in field_id_map:
+            values[SC_SOURCEREPO] = repo_url
+
         # Individual checks: "SC-" + check_name
         for check in scorecard_data.get("checks", []):
             label = f"SC-{check.get('name', '')}"
@@ -536,6 +586,7 @@ class CustomFields:
         field_id_map: dict[str, str],
         option_href_map: dict[str, dict[str, str]] | None = None,
         workers: int = 8,
+        comp_repo_urls: dict[str, str] | None = None,
     ) -> tuple[int, int]:
         """
         Upload scorecard data to multiple components in parallel.
@@ -545,9 +596,12 @@ class CustomFields:
         total_set = total_skipped = 0
         total = len(comp_scorecard)
         with ThreadPoolExecutor(max_workers=workers) as pool:
+            _repo_urls = comp_repo_urls or {}
             future_to_url = {
                 pool.submit(
-                    self.upload_to_component, comp_url, sc_data, field_id_map, option_href_map
+                    self.upload_to_component,
+                    comp_url, sc_data, field_id_map, option_href_map,
+                    _repo_urls.get(comp_url),
                 ): comp_url
                 for comp_url, sc_data in comp_scorecard.items()
             }

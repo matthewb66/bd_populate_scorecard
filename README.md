@@ -10,7 +10,9 @@ Fetches [OpenSSF Scorecard](https://securityscorecards.dev) data for every packa
 4. Writes a JSON report to stdout or a file.
 5. Uploads the scorecard scores to Black Duck Component custom fields (`SC-Overall`, `SC-Date`, and any individual check fields you have created).  Components with no scorecard data still get `SC-Date` set to today so they are not re-queried until the next update period.
 
-Supported ecosystems: **npm**, **PyPI**, **RubyGems**, **NuGet**.
+Supported ecosystems: **npm**, **PyPI**, **RubyGems**, **NuGet**, **Maven**, **Cargo**, **Go**.
+
+Three fields are always created: `SC-Overall`, `SC-Date`, and `SC-Sourcerepo`.  `SC-Sourcerepo` caches the resolved source repository so subsequent runs can skip the package→registry lookup, reducing API traffic and runtime.
 
 ---
 
@@ -40,7 +42,7 @@ Once installed, the `bd-scorecard-lookup` command is available on your PATH.
 
 Before running the main script, create the `SC-*` Component custom fields in Black Duck.  You only need to do this once.
 
-**Create SC-Overall and SC-Date only:**
+**Create SC-Overall, SC-Date, and SC-Sourcerepo only:**
 
 ```
 bd-scorecard-lookup \

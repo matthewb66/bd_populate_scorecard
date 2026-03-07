@@ -15,7 +15,7 @@ from blackduck import Client
 
 from .BOMClass import BOM
 from .ConfigClass import Config
-from .CustomFieldsClass import CustomFields, SC_DATE
+from .CustomFieldsClass import CustomFields, SC_DATE, SC_SOURCEREPO
 
 
 def main():
@@ -137,6 +137,37 @@ def process(conf):
         lookup_pkg_ids = [p for p in supported_pkg_ids if p not in fresh_pkg_ids]
 
     # ------------------------------------------------------------------ #
+    # 2c. Read cached SC-Sourcerepo values to skip pkg→repo resolution
+    # ------------------------------------------------------------------ #
+    pkg_id_cached_repo: dict[str, str] = {}
+    sc_sourcerepo_field_id = field_id_map.get(SC_SOURCEREPO)
+    if sc_sourcerepo_field_id and lookup_pkg_ids:
+        lookup_comp_urls: set[str] = {
+            comp.data.get('component', '')
+            for pid in lookup_pkg_ids
+            if (comp := pkg_id_map.get(pid)) and comp.data.get('component', '')
+        }
+        conf.logger.info(
+            f"Reading cached SC-Sourcerepo for {len(lookup_comp_urls)} component(s) …"
+        )
+        cached_repo_map = cf.get_sc_sourcerepo_map(
+            list(lookup_comp_urls),
+            sc_sourcerepo_field_id,
+            workers=conf.workers,
+        )
+        for pid in lookup_pkg_ids:
+            comp = pkg_id_map.get(pid)
+            if comp:
+                repo_url = cached_repo_map.get(comp.data.get('component', ''))
+                if repo_url:
+                    pkg_id_cached_repo[pid] = repo_url
+        if pkg_id_cached_repo:
+            conf.logger.info(
+                f"Cached SC-Sourcerepo found for {len(pkg_id_cached_repo)} package(s) — "
+                f"skipping pkg→repo resolution for these"
+            )
+
+    # ------------------------------------------------------------------ #
     # 3. Look up scorecard data for packages that need updating
     # ------------------------------------------------------------------ #
     scorecard_results: dict = {}
@@ -149,6 +180,7 @@ def process(conf):
                 lookup_pkg_ids,
                 workers=conf.workers,
                 on_progress=conf.logger.info,
+                pre_resolved=pkg_id_cached_repo,
             )
         except Exception as exc:
             conf.logger.error(f"Scorecard lookup failed: {exc}")
@@ -180,6 +212,7 @@ def process(conf):
     today = {'date': datetime.now(timezone.utc).strftime('%Y-%m-%d')}
     comp_scorecard: dict[str, dict] = {}
     comp_date_only: dict[str, dict] = {}
+    comp_repo_urls: dict[str, str] = {}   # comp_url → resolved repo URL (for SC-Sourcerepo)
     seen_comp_urls: set[str] = set()
     for pkg_id, comp in pkg_id_map.items():
         comp_url = comp.data.get('component', '')
@@ -195,6 +228,11 @@ def process(conf):
             existing = sc_date_map.get(comp_url)
             if cutoff is None or existing is None or existing < cutoff:
                 comp_date_only[comp_url] = today
+        # Collect repo URLs for SC-Sourcerepo upload (both match and no-match).
+        if pkg_id in lookup_set:
+            repo_url = scorecard_results.get(pkg_id, {}).get('repo_url', '')
+            if repo_url:
+                comp_repo_urls[comp_url] = repo_url
 
     if not comp_scorecard and not comp_date_only:
         conf.logger.info("No components to update — nothing to upload.")
@@ -206,7 +244,10 @@ def process(conf):
         conf.logger.info(
             f"Uploading scorecard data to {len(comp_scorecard)} component(s) …"
         )
-        s, f = cf.upload_components(comp_scorecard, field_id_map, option_href_map, workers=conf.workers)
+        s, f = cf.upload_components(
+            comp_scorecard, field_id_map, option_href_map,
+            workers=conf.workers, comp_repo_urls=comp_repo_urls,
+        )
         total_set += s
         total_skipped += f
 
@@ -214,7 +255,10 @@ def process(conf):
         conf.logger.info(
             f"Setting SC-Date to today for {len(comp_date_only)} component(s) with no scorecard data …"
         )
-        s, f = cf.upload_components(comp_date_only, field_id_map, option_href_map, workers=conf.workers)
+        s, f = cf.upload_components(
+            comp_date_only, field_id_map, option_href_map,
+            workers=conf.workers, comp_repo_urls=comp_repo_urls,
+        )
         total_set += s
         total_skipped += f
 
