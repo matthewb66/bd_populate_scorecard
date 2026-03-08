@@ -20,7 +20,7 @@ class Config:
         # None  → option not supplied (normal run)
         # list  → create_custom_fields was supplied (list may be empty → SC-Overall only)
         self.create_custom_fields: list[str] | None = None
-        self.update_period: int = 30
+        self.update_period: int = 45
         self.report: str = ''
 
     def get_cli_args(self):
@@ -56,8 +56,8 @@ class Config:
                 'Omit FIELD_LIST (or pass an empty string) to create SC-Overall and SC-Date only.'
             ),
         )
-        parser.add_argument('--update_period', type=int, default=30, metavar='DD',
-                            help='Only upload scorecard data newer than DD days (default: 30)')
+        parser.add_argument('--update_period', type=int, default=45, metavar='DD',
+                            help='Only upload scorecard data newer than DD days (default: 45)')
         parser.add_argument('--report', metavar='FILE', default='',
                             help='Write a human-readable report to FILE')
         parser.add_argument('--debug', help='Enable debug logging', action='store_true')

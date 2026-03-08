@@ -3,13 +3,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 # Ensure the project root (parent of this package) is on sys.path so that
-# scorecard_lookup.py can be imported whether the user runs via the top-level
-# bd_scorecard_lookup.py entry point or via `python -m bd_scorecard`.
+# pkg_repo_lookup.py (imported by ComponentListClass) can be found whether the
+# user runs via the installed bd-scorecard-lookup command or via `python -m bd_scorecard`.
 _PROJECT_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
-
-import scorecard_lookup  # noqa: E402 (must come after path manipulation)
 
 from blackduck import Client
 
@@ -176,7 +174,7 @@ def process(conf):
             f"Querying scorecard data for {len(lookup_pkg_ids)} package(s) …"
         )
         try:
-            scorecard_results = scorecard_lookup.run(
+            scorecard_results = complist.lookup_scorecard(
                 lookup_pkg_ids,
                 workers=conf.workers,
                 on_progress=conf.logger.info,
@@ -188,16 +186,14 @@ def process(conf):
 
     hits = sum(1 for e in scorecard_results.values() if e.get('scorecard') is not None)
     conf.logger.info(
-        f"Scorecard data found for {hits} / {len(supported_pkg_ids)} supported package(s)"
+        f"Scorecard data found for {hits} / {len(lookup_pkg_ids)} looked-up package(s)"
     )
 
     # ------------------------------------------------------------------ #
     # 4. Upload scorecard values to Component custom fields in Black Duck
     # ------------------------------------------------------------------ #
-    # Ensure every DROPDOWN field has its options (0–10) before writing values,
-    # then resolve option labels to BD's internal option IDs.
-    cf.ensure_dropdown_options()
-    option_href_map = cf.build_option_href_map(field_id_map)
+    # Verify DROPDOWN field options and build the option href map in one fetch.
+    option_href_map = cf.prepare_for_upload(field_id_map)
 
     conf.logger.info(
         f"Uploading scorecard data to {len(field_id_map)} field(s) …"

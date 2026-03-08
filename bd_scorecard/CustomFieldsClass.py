@@ -64,6 +64,11 @@ _FIELD_TYPES = {
 _OPTIONS_FILE = pathlib.Path(__file__).parent.parent / "options.json"
 
 
+def _url_last_segment(url: str) -> str:
+    """Return the last path segment of a URL or href (strips trailing slash first)."""
+    return url.rstrip("/").rsplit("/", 1)[-1]
+
+
 def _load_options() -> list[dict]:
     """
     Read options.json and return a list of {position, label} dicts suitable
@@ -189,7 +194,8 @@ class CustomFields:
             f"  Field {field_id}: creating {len(missing)} missing option(s) …"
         )
         options_url = self._field_options_url(field_id)
-        for opt in missing:
+
+        def _post_one(opt: dict) -> None:
             resp = self.bd.session.post(
                 options_url,
                 data=json.dumps({"position": opt["position"], "label": opt["label"]}),
@@ -199,7 +205,6 @@ class CustomFields:
                 },
             )
             if resp.status_code not in (200, 201):
-                # 412 "duplicate label" means the option already exists — not an error
                 if resp.status_code == 412 and "duplicate" in resp.text.lower():
                     self.conf.logger.debug(
                         f"  Option '{opt['label']}' already exists for field {field_id}"
@@ -209,6 +214,9 @@ class CustomFields:
                         f"  Could not create option '{opt['label']}' for field {field_id}: "
                         f"HTTP {resp.status_code} — {resp.text[:100]}"
                     )
+
+        with ThreadPoolExecutor(max_workers=len(missing)) as pool:
+            list(pool.map(_post_one, missing))
 
     def ensure_dropdown_options(self) -> None:
         """
@@ -230,7 +238,7 @@ class CustomFields:
         )
         for item in dropdown_items:
             href = item.get("_meta", {}).get("href", "")
-            field_id = href.rstrip("/").split("/")[-1]
+            field_id = _url_last_segment(href)
             if field_id:
                 self._post_options_for_field(field_id)
 
@@ -379,7 +387,7 @@ class CustomFields:
             if not label.startswith("SC-"):
                 continue
             href = item.get("_meta", {}).get("href", "")
-            field_id = href.rstrip("/").split("/")[-1]
+            field_id = _url_last_segment(href)
             if field_id:
                 field_map[label] = field_id
         return field_map
@@ -403,7 +411,7 @@ class CustomFields:
             if label not in field_id_map or item.get("type") != "DROPDOWN":
                 continue
             href = item.get("_meta", {}).get("href", "")
-            field_id = href.rstrip("/").split("/")[-1]
+            field_id = _url_last_segment(href)
             if not field_id:
                 continue
             options = self._fetch_field_options(field_id)
@@ -420,6 +428,57 @@ class CustomFields:
                 )
         return option_href_map
 
+    def prepare_for_upload(
+        self, field_id_map: dict[str, str]
+    ) -> dict[str, dict[str, str]]:
+        """
+        Single-pass replacement for calling ``ensure_dropdown_options()`` then
+        ``build_option_href_map()``.
+
+        Fetches the field list once, verifies / creates options for every
+        SC-* DROPDOWN field, and returns the ``{field_label: {option_label:
+        option_href}}`` map needed by ``upload_to_component()``.
+        """
+        url = self._get_fields_url()
+        res = self.bd.get_json(url, headers={"accept": _ADMIN_ACCEPT})
+        items = res.get("items", [])
+
+        # Ensure dropdown options exist
+        dropdown_items = [
+            item for item in items
+            if item.get("label", "").startswith("SC-") and item.get("type") == "DROPDOWN"
+        ]
+        if dropdown_items:
+            self.conf.logger.info(
+                f"Verifying options for {len(dropdown_items)} SC-* DROPDOWN field(s) …"
+            )
+            for item in dropdown_items:
+                field_id = _url_last_segment(item.get("_meta", {}).get("href", ""))
+                if field_id:
+                    self._post_options_for_field(field_id)
+
+        # Build option href map
+        option_href_map: dict[str, dict[str, str]] = {}
+        for item in items:
+            label = item.get("label", "")
+            if label not in field_id_map or item.get("type") != "DROPDOWN":
+                continue
+            field_id = _url_last_segment(item.get("_meta", {}).get("href", ""))
+            if not field_id:
+                continue
+            options = self._fetch_field_options(field_id)
+            label_to_href = {
+                opt.get("label", ""): opt.get("_meta", {}).get("href", "")
+                for opt in options
+                if opt.get("label") and opt.get("_meta", {}).get("href")
+            }
+            if label_to_href:
+                option_href_map[label] = label_to_href
+                self.conf.logger.debug(
+                    f"  {label}: mapped {len(label_to_href)} option href(s)"
+                )
+        return option_href_map
+
     def get_component_sc_date(self, component_url: str, sc_date_field_id: str) -> datetime | None:
         """
         Read the current SC-Date custom field value from a component.
@@ -427,7 +486,7 @@ class CustomFields:
         Returns a timezone-aware datetime if a valid value exists, or None if
         the field is unset or the value cannot be parsed.
         """
-        component_id = component_url.rstrip("/").split("/")[-1]
+        component_id = _url_last_segment(component_url)
         url = f"{self.bd.base_url}/api/components/{component_id}/custom-fields/{sc_date_field_id}"
         try:
             res = self.bd.get_json(url, headers={"accept": _COMP_CONTENT_TYPE})
@@ -473,7 +532,7 @@ class CustomFields:
 
     def get_component_sc_sourcerepo(self, component_url: str, field_id: str) -> str | None:
         """Read the current SC-Sourcerepo custom field value from a component."""
-        component_id = component_url.rstrip("/").split("/")[-1]
+        component_id = _url_last_segment(component_url)
         url = f"{self.bd.base_url}/api/components/{component_id}/custom-fields/{field_id}"
         try:
             res = self.bd.get_json(url, headers={"accept": _COMP_CONTENT_TYPE})
@@ -524,13 +583,13 @@ class CustomFields:
         """
         Write scorecard values to every matching SC-* custom field on a component.
 
-        ``option_href_map`` should be the result of ``build_option_href_map()``.
+        ``option_href_map`` should be the result of ``prepare_for_upload()``.
         For DROPDOWN fields the value placed in the ``values`` array is the full
         ``_meta.href`` of the matching option (as required by the BD API).
 
         Returns ``(fields_set, fields_skipped)`` counts.
         """
-        component_id = component_url.rstrip("/").split("/")[-1]
+        component_id = _url_last_segment(component_url)
         option_href_map = option_href_map or {}
 
         def _dropdown_href(field_label: str, score: float) -> str | None:

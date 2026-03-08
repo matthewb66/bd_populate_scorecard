@@ -95,19 +95,19 @@ bd-scorecard-lookup \
 
 ### All options
 
-| Flag | Default | Description |
-|---|---|---|
-| `--blackduck_url` | `BLACKDUCK_URL` env var | Black Duck server URL |
+| Flag | Default                       | Description |
+|---|-------------------------------|---|
+| `--blackduck_url` | `BLACKDUCK_URL` env var       | Black Duck server URL |
 | `--blackduck_api_token` | `BLACKDUCK_API_TOKEN` env var | Black Duck API token |
-| `--blackduck_trust_cert` | off | Trust the server's TLS certificate (self-signed) |
-| `-p`, `--project` | — | Black Duck project name **(required)** |
-| `-v`, `--version` | — | Black Duck project version name **(required)** |
-| `--update_period DD` | `30` | Skip components whose `SC-Date` is within DD days; set to `0` to always refresh |
-| `--report FILE` | — | Write a human-readable report to FILE grouping components by match / no-match |
-| `--workers N` | `8` | Number of parallel threads for API requests |
-| `--create_custom_fields [FIELD_LIST]` | — | Create custom fields then exit (see Setup above) |
-| `--debug` | off | Enable debug-level logging |
-| `--logfile FILE` | — | Write log output to FILE in addition to stderr |
+| `--blackduck_trust_cert` | off                           | Trust the server's TLS certificate (self-signed) |
+| `-p`, `--project` | —                             | Black Duck project name **(required)** |
+| `-v`, `--version` | —                             | Black Duck project version name **(required)** |
+| `--update_period DD` | `45`                          | Skip components whose `SC-Date` is within DD days; set to `0` to always refresh |
+| `--report FILE` | —                             | Write a human-readable report to FILE grouping components by match / no-match |
+| `--workers N` | `8`                           | Number of parallel threads for API requests |
+| `--create_custom_fields [FIELD_LIST]` | —                             | Create custom fields then exit (see Setup above) |
+| `--debug` | off                           | Enable debug-level logging |
+| `--logfile FILE` | —                             | Write log output to FILE in addition to stderr |
 
 ### Environment variables
 
@@ -131,26 +131,4 @@ bd-scorecard-lookup \
     --blackduck_api_token <TOKEN> \
     -p "My Project" -v "1.0.0" \
     --update_period 0
-```
-
-**Use 16 parallel workers and enable debug logging:**
-
-```
-bd-scorecard-lookup \
-    --blackduck_url https://your-blackduck-server \
-    --blackduck_api_token <TOKEN> \
-    -p "My Project" -v "1.0.0" \
-    --workers 16 \
-    --debug \
-    --logfile run.log
-```
-
-**Run as a scheduled job (cron, CI pipeline) — refresh every 30 days:**
-
-```
-bd-scorecard-lookup \
-    --blackduck_url "$BLACKDUCK_URL" \
-    --blackduck_api_token "$BLACKDUCK_API_TOKEN" \
-    -p "My Project" -v "1.0.0" \
-    --update_period 30
 ```

@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 import requests
 
-TIMEOUT = 10
+TIMEOUT = 15
 
 # ---------------------------------------------------------------------------
 # Shared regex matchers (used by PyPI; defined in package_managers.go:32-34)
